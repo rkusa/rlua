@@ -963,6 +963,15 @@ fn test_setmetatable_gc() {
     assert_eq!(globals.get::<_, String>("val").unwrap(), "gcwascalled");
 }
 
+#[cfg(feature = "send")]
+#[test]
+fn test_send() {
+    fn assert_send<T: Send>() {}
+
+    assert_send::<Lua>();
+    assert_send::<Error>();
+}
+
 // Need to use compiletest-rs or similar to make sure these don't compile.
 /*
 #[test]
@@ -985,5 +994,10 @@ fn should_not_compile() {
     globals.set("boom", lua.create_function(|_, _| {
         lua.eval::<i32>("1 + 1", None)
     })).unwrap();
+
+    // When 'send' is not enabled, Lua and Error should not be Send
+    fn assert_send<T: Send>() {}
+    assert_send::<Lua>();
+    assert_send::<Error>();
 }
 */

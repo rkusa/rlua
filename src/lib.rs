@@ -3,7 +3,7 @@
 
 extern crate libc;
 
-pub mod ffi;
+mod ffi;
 #[macro_use]
 mod util;
 mod error;

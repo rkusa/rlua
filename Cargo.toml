@@ -20,6 +20,9 @@ default = ["builtin-lua"]
 # LUA_INTEGER as long long, and LUA_NUMBER as double, and may make other
 # assumptions about how lua is built.
 builtin-lua = ["gcc"]
+# Enables Send bounds on Lua userdata so that Lua itself is Send, and also Send
+# + Sync bounds on errors so that errors are Send + Sync
+send = []
 
 [dependencies]
 libc = { version = "0.2" }

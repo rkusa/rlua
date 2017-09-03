@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
+#![allow(unused)]
 
 use std::ptr;
 use std::os::raw::{c_void, c_char, c_int, c_longlong, c_double};

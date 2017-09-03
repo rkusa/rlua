@@ -17,6 +17,18 @@ use ffi;
 use error::*;
 use util::*;
 
+#[cfg(feature = "send")]
+pub trait UserDataBounds: 'static + Send {}
+
+#[cfg(feature = "send")]
+impl<T: 'static + Send> UserDataBounds for T {}
+
+#[cfg(not(feature = "send"))]
+pub trait UserDataBounds: 'static {}
+
+#[cfg(not(feature = "send"))]
+impl<T: 'static> UserDataBounds for T {}
+
 /// A dynamically typed Lua value.
 #[derive(Debug, Clone)]
 pub enum Value<'lua> {
@@ -993,7 +1005,7 @@ impl<'lua, T: UserData> UserDataMethods<'lua, T> {
     where
         A: FromLuaMulti<'lua>,
         R: ToLuaMulti<'lua>,
-        M: 'static + for<'a> FnMut(&'lua Lua, &'a T, A) -> Result<R>,
+        M: UserDataBounds + for<'a> FnMut(&'lua Lua, &'a T, A) -> Result<R>,
     {
         self.methods.insert(
             name.to_owned(),
@@ -1010,7 +1022,7 @@ impl<'lua, T: UserData> UserDataMethods<'lua, T> {
     where
         A: FromLuaMulti<'lua>,
         R: ToLuaMulti<'lua>,
-        M: 'static + for<'a> FnMut(&'lua Lua, &'a mut T, A) -> Result<R>,
+        M: UserDataBounds + for<'a> FnMut(&'lua Lua, &'a mut T, A) -> Result<R>,
     {
         self.methods.insert(
             name.to_owned(),
@@ -1029,7 +1041,7 @@ impl<'lua, T: UserData> UserDataMethods<'lua, T> {
     where
         A: FromLuaMulti<'lua>,
         R: ToLuaMulti<'lua>,
-        F: 'static + FnMut(&'lua Lua, A) -> Result<R>,
+        F: UserDataBounds + FnMut(&'lua Lua, A) -> Result<R>,
     {
         self.methods.insert(
             name.to_owned(),
@@ -1049,7 +1061,7 @@ impl<'lua, T: UserData> UserDataMethods<'lua, T> {
     where
         A: FromLuaMulti<'lua>,
         R: ToLuaMulti<'lua>,
-        M: 'static + for<'a> FnMut(&'lua Lua, &'a T, A) -> Result<R>,
+        M: UserDataBounds + for<'a> FnMut(&'lua Lua, &'a T, A) -> Result<R>,
     {
         self.meta_methods.insert(meta, Self::box_method(method));
     }
@@ -1066,7 +1078,7 @@ impl<'lua, T: UserData> UserDataMethods<'lua, T> {
     where
         A: FromLuaMulti<'lua>,
         R: ToLuaMulti<'lua>,
-        M: 'static + for<'a> FnMut(&'lua Lua, &'a mut T, A) -> Result<R>,
+        M: UserDataBounds + for<'a> FnMut(&'lua Lua, &'a mut T, A) -> Result<R>,
     {
         self.meta_methods.insert(meta, Self::box_method_mut(method));
     }
@@ -1080,7 +1092,7 @@ impl<'lua, T: UserData> UserDataMethods<'lua, T> {
     where
         A: FromLuaMulti<'lua>,
         R: ToLuaMulti<'lua>,
-        F: 'static + FnMut(&'lua Lua, A) -> Result<R>,
+        F: UserDataBounds + FnMut(&'lua Lua, A) -> Result<R>,
     {
         self.meta_methods.insert(meta, Self::box_function(function));
     }
@@ -1089,7 +1101,7 @@ impl<'lua, T: UserData> UserDataMethods<'lua, T> {
     where
         A: FromLuaMulti<'lua>,
         R: ToLuaMulti<'lua>,
-        F: 'static + FnMut(&'lua Lua, A) -> Result<R>,
+        F: UserDataBounds + FnMut(&'lua Lua, A) -> Result<R>,
     {
         Box::new(move |lua, args| {
             function(lua, A::from_lua_multi(args, lua)?)?.to_lua_multi(
@@ -1102,7 +1114,7 @@ impl<'lua, T: UserData> UserDataMethods<'lua, T> {
     where
         A: FromLuaMulti<'lua>,
         R: ToLuaMulti<'lua>,
-        M: 'static + for<'a> FnMut(&'lua Lua, &'a T, A) -> Result<R>,
+        M: UserDataBounds + for<'a> FnMut(&'lua Lua, &'a T, A) -> Result<R>,
     {
         Box::new(move |lua, mut args| if let Some(front) = args.pop_front() {
             let userdata = AnyUserData::from_lua(front, lua)?;
@@ -1122,7 +1134,7 @@ impl<'lua, T: UserData> UserDataMethods<'lua, T> {
     where
         A: FromLuaMulti<'lua>,
         R: ToLuaMulti<'lua>,
-        M: 'static + for<'a> FnMut(&'lua Lua, &'a mut T, A) -> Result<R>,
+        M: UserDataBounds + for<'a> FnMut(&'lua Lua, &'a mut T, A) -> Result<R>,
     {
         Box::new(move |lua, mut args| if let Some(front) = args.pop_front() {
             let userdata = AnyUserData::from_lua(front, lua)?;
@@ -1211,7 +1223,7 @@ impl<'lua, T: UserData> UserDataMethods<'lua, T> {
 /// ```
 ///
 /// [`UserDataMethods`]: struct.UserDataMethods.html
-pub trait UserData: 'static + Sized {
+pub trait UserData: UserDataBounds + Sized {
     /// Adds custom methods and operators specific to this userdata.
     fn add_methods(_methods: &mut UserDataMethods<Self>) {}
 }
@@ -1310,6 +1322,9 @@ pub struct Lua {
     main_state: *mut ffi::lua_State,
     ephemeral: bool,
 }
+
+#[cfg(feature = "send")]
+unsafe impl Send for Lua {}
 
 impl Drop for Lua {
     fn drop(&mut self) {
@@ -1608,7 +1623,7 @@ impl Lua {
     where
         A: FromLuaMulti<'lua>,
         R: ToLuaMulti<'lua>,
-        F: 'static + FnMut(&'lua Lua, A) -> Result<R>,
+        F: UserDataBounds + FnMut(&'lua Lua, A) -> Result<R>,
     {
         self.create_callback_function(Box::new(move |lua, args| {
             func(lua, A::from_lua_multi(args, lua)?)?.to_lua_multi(lua)

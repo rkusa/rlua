@@ -1,7 +1,6 @@
 use std::mem;
 use std::ptr;
 use std::process;
-use std::sync::Arc;
 use std::ffi::CStr;
 use std::any::Any;
 use std::os::raw::{c_char, c_int, c_void};
@@ -382,7 +381,7 @@ pub unsafe fn pcall_with_traceback(
                 state,
                 Error::CallbackError {
                     traceback,
-                    cause: Arc::new(error),
+                    cause: error.into(),
                 },
             );
             ffi::lua_remove(state, -2);
@@ -424,7 +423,7 @@ pub unsafe fn resume_with_traceback(
                 state,
                 Error::CallbackError {
                     traceback,
-                    cause: Arc::new(error),
+                    cause: error.into(),
                 },
             );
             ffi::lua_remove(state, -2);

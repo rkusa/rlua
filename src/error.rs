@@ -1,7 +1,31 @@
 use std::fmt;
-use std::sync::Arc;
 use std::error::Error as StdError;
 use std::result::Result as StdResult;
+
+#[cfg(feature = "send")]
+mod cfg {
+    use std::sync::Arc;
+
+    pub type ErrorRc<T> = Arc<T>;
+    pub type RcStdError = Arc<super::StdError + Send + Sync>;
+    // FIXME: Compiler bug misidentifies BoxStdError as unused
+    #[allow(dead_code)]
+    pub type BoxStdError = Box<super::StdError + Send + Sync>;
+}
+
+#[cfg(not(feature = "send"))]
+mod cfg {
+
+    use std::rc::Rc;
+
+    pub type ErrorRc<T> = Rc<T>;
+    pub type RcStdError = Rc<super::StdError>;
+    // FIXME: Compiler bug misidentifies BoxStdError as unused
+    #[allow(dead_code)]
+    pub type BoxStdError = Box<super::StdError>;
+}
+
+use self::cfg::*;
 
 /// Error type returned by rlua methods.
 #[derive(Debug, Clone)]
@@ -83,7 +107,7 @@ pub enum Error {
         /// Lua call stack backtrace.
         traceback: String,
         /// Original error returned by the Rust code.
-        cause: Arc<Error>,
+        cause: ErrorRc<Error>,
     },
     /// A custom error.
     ///
@@ -92,7 +116,7 @@ pub enum Error {
     /// Returning `Err(ExternalError(...))` from a Rust callback will raise the error as a Lua
     /// error. The Rust code that originally invoked the Lua code then receives a `CallbackError`,
     /// from which the original error (and a stack traceback) can be recovered.
-    ExternalError(Arc<StdError + Send + Sync>),
+    ExternalError(RcStdError),
 }
 
 /// A specialized `Result` type used by rlua's API.
@@ -160,23 +184,17 @@ impl StdError for Error {
     }
 }
 
-impl Error {
-    pub fn external<T: 'static + StdError + Send + Sync>(err: T) -> Error {
-        Error::ExternalError(Arc::new(err))
-    }
-}
-
 pub trait ExternalError {
     fn to_lua_err(self) -> Error;
 }
 
 impl<E> ExternalError for E
 where
-    E: Into<Box<StdError + Send + Sync>>,
+    E: Into<BoxStdError>,
 {
     fn to_lua_err(self) -> Error {
         #[derive(Debug)]
-        struct WrapError(Box<StdError + Send + Sync>);
+        struct WrapError(BoxStdError);
 
         impl fmt::Display for WrapError {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -190,7 +208,7 @@ where
             }
         }
 
-        Error::external(WrapError(self.into()))
+        Error::ExternalError(ErrorRc::new(WrapError(self.into())))
     }
 }
 
