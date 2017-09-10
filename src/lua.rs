@@ -69,15 +69,15 @@ impl<'lua> Value<'lua> {
 }
 
 /// Trait for types convertible to `Value`.
-pub trait ToLua<'a> {
+pub trait ToLua<'lua> {
     /// Performs the conversion.
-    fn to_lua(self, lua: &'a Lua) -> Result<Value<'a>>;
+    fn to_lua(self, lua: &'lua Lua) -> Result<Value<'lua>>;
 }
 
 /// Trait for types convertible from `Value`.
-pub trait FromLua<'a>: Sized {
+pub trait FromLua<'lua>: Sized {
     /// Performs the conversion.
-    fn from_lua(lua_value: Value<'a>, lua: &'a Lua) -> Result<Self>;
+    fn from_lua(lua_value: Value<'lua>, lua: &'lua Lua) -> Result<Self>;
 }
 
 /// Multiple Lua values used for both argument passing and also for multiple return values.
@@ -123,23 +123,23 @@ impl<'lua> DerefMut for MultiValue<'lua> {
 ///
 /// This is a generalization of `ToLua`, allowing any number of resulting Lua values instead of just
 /// one. Any type that implements `ToLua` will automatically implement this trait.
-pub trait ToLuaMulti<'a> {
+pub trait ToLuaMulti<'lua> {
     /// Performs the conversion.
-    fn to_lua_multi(self, lua: &'a Lua) -> Result<MultiValue<'a>>;
+    fn to_lua_multi(self, lua: &'lua Lua) -> Result<MultiValue<'lua>>;
 }
 
 /// Trait for types that can be created from an arbitrary number of Lua values.
 ///
 /// This is a generalization of `FromLua`, allowing an arbitrary number of Lua values to participate
 /// in the conversion. Any type that implements `FromLua` will automatically implement this trait.
-pub trait FromLuaMulti<'a>: Sized {
+pub trait FromLuaMulti<'lua>: Sized {
     /// Performs the conversion.
     ///
     /// In case `values` contains more values than needed to perform the conversion, the excess
     /// values should be ignored. This reflects the semantics of Lua when calling a function or
     /// assigning values. Similarly, if not enough values are given, conversions should assume that
     /// any missing values are nil.
-    fn from_lua_multi(values: MultiValue<'a>, lua: &'a Lua) -> Result<Self>;
+    fn from_lua_multi(values: MultiValue<'lua>, lua: &'lua Lua) -> Result<Self>;
 }
 
 type Callback<'lua> = Box<FnMut(&'lua Lua, MultiValue<'lua>) -> Result<MultiValue<'lua>> + 'lua>;
@@ -981,7 +981,7 @@ pub struct UserDataMethods<'lua, T> {
     _type: PhantomData<T>,
 }
 
-impl<'lua, T: UserData> UserDataMethods<'lua, T> {
+impl<'lua, T: UserData<'lua>> UserDataMethods<'lua, T> {
     /// Add a method which accepts a `&T` as the first parameter.
     ///
     /// Regular methods are implemented by overriding the `__index` metamethod and returning the
@@ -1152,7 +1152,7 @@ impl<'lua, T: UserData> UserDataMethods<'lua, T> {
 /// # fn try_main() -> Result<()> {
 /// struct MyUserData(i32);
 ///
-/// impl UserData for MyUserData {}
+/// impl<'lua> UserData<'lua> for MyUserData {}
 ///
 /// let lua = Lua::new();
 ///
@@ -1176,8 +1176,8 @@ impl<'lua, T: UserData> UserDataMethods<'lua, T> {
 /// # fn try_main() -> Result<()> {
 /// struct MyUserData(i32);
 ///
-/// impl UserData for MyUserData {
-///     fn add_methods(methods: &mut UserDataMethods<Self>) {
+/// impl<'lua> UserData<'lua> for MyUserData {
+///     fn add_methods(methods: &mut UserDataMethods<'lua, Self>) {
 ///         methods.add_method("get", |_, this, _: ()| {
 ///             Ok(this.0)
 ///         });
@@ -1211,9 +1211,9 @@ impl<'lua, T: UserData> UserDataMethods<'lua, T> {
 /// ```
 ///
 /// [`UserDataMethods`]: struct.UserDataMethods.html
-pub trait UserData: 'static + Sized {
+pub trait UserData<'lua>: 'static + Sized {
     /// Adds custom methods and operators specific to this userdata.
-    fn add_methods(_methods: &mut UserDataMethods<Self>) {}
+    fn add_methods(_methods: &mut UserDataMethods<'lua, Self>) {}
 }
 
 /// Handle to an internal Lua userdata for any type that implements [`UserData`].
@@ -1237,7 +1237,7 @@ pub struct AnyUserData<'lua>(LuaRef<'lua>);
 
 impl<'lua> AnyUserData<'lua> {
     /// Checks whether the type of this userdata is `T`.
-    pub fn is<T: UserData>(&self) -> bool {
+    pub fn is<T: UserData<'lua>>(&self) -> bool {
         self.inspect(|_: &RefCell<T>| ()).is_some()
     }
 
@@ -1247,7 +1247,7 @@ impl<'lua> AnyUserData<'lua> {
     ///
     /// Returns a `UserDataBorrowError` if the userdata is already mutably borrowed. Returns a
     /// `UserDataTypeMismatch` if the userdata is not of type `T`.
-    pub fn borrow<T: UserData>(&self) -> Result<Ref<T>> {
+    pub fn borrow<T: UserData<'lua>>(&self) -> Result<Ref<T>> {
         self.inspect(|cell| {
             Ok(cell.try_borrow().map_err(|_| Error::UserDataBorrowError)?)
         }).ok_or(Error::UserDataTypeMismatch)?
@@ -1259,7 +1259,7 @@ impl<'lua> AnyUserData<'lua> {
     ///
     /// Returns a `UserDataBorrowMutError` if the userdata is already borrowed. Returns a
     /// `UserDataTypeMismatch` if the userdata is not of type `T`.
-    pub fn borrow_mut<T: UserData>(&self) -> Result<RefMut<T>> {
+    pub fn borrow_mut<T: UserData<'lua>>(&self) -> Result<RefMut<T>> {
         self.inspect(|cell| {
             Ok(cell.try_borrow_mut().map_err(
                 |_| Error::UserDataBorrowMutError,
@@ -1269,7 +1269,7 @@ impl<'lua> AnyUserData<'lua> {
 
     fn inspect<'a, T, R, F>(&'a self, func: F) -> Option<R>
     where
-        T: UserData,
+        T: UserData<'lua>,
         F: FnOnce(&'a RefCell<T>) -> R,
     {
         unsafe {
@@ -1632,9 +1632,9 @@ impl Lua {
     }
 
     /// Create a Lua userdata object from a custom userdata type.
-    pub fn create_userdata<T>(&self, data: T) -> AnyUserData
+    pub fn create_userdata<'lua, T>(&'lua self, data: T) -> AnyUserData
     where
-        T: UserData,
+        T: UserData<'lua>,
     {
         unsafe {
             stack_guard(self.state, 0, move || {
@@ -1951,7 +1951,7 @@ impl Lua {
         }
     }
 
-    unsafe fn userdata_metatable<T: UserData>(&self) -> c_int {
+    unsafe fn userdata_metatable<'lua, T: UserData<'lua>>(&'lua self) -> c_int {
         // Used if both an __index metamethod is set and regular methods, checks methods table
         // first, then __index metamethod.
         unsafe extern "C" fn meta_index_impl(state: *mut ffi::lua_State) -> c_int {

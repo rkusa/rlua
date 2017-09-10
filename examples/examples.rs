@@ -125,8 +125,8 @@ fn examples() -> Result<()> {
     #[derive(Copy, Clone)]
     struct Vec2(f32, f32);
 
-    impl UserData for Vec2 {
-        fn add_methods(methods: &mut UserDataMethods<Self>) {
+    impl<'lua> UserData<'lua> for Vec2 {
+        fn add_methods(methods: &mut UserDataMethods<'lua, Self>) {
             methods.add_method("magnitude", |_, vec, ()| {
                 let mag_squared = vec.0 * vec.0 + vec.1 * vec.1;
                 Ok(mag_squared.sqrt())

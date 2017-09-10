@@ -236,8 +236,8 @@ fn test_user_data() {
     struct UserData1(i64);
     struct UserData2(Box<i64>);
 
-    impl UserData for UserData1 {};
-    impl UserData for UserData2 {};
+    impl<'lua> UserData<'lua> for UserData1 {};
+    impl<'lua> UserData<'lua> for UserData2 {};
 
     let lua = Lua::new();
 
@@ -257,8 +257,8 @@ fn test_user_data() {
 fn test_methods() {
     struct MyUserData(i64);
 
-    impl UserData for MyUserData {
-        fn add_methods(methods: &mut UserDataMethods<Self>) {
+    impl<'lua> UserData<'lua> for MyUserData {
+        fn add_methods(methods: &mut UserDataMethods<'lua, Self>) {
             methods.add_method("get_value", |_, data, ()| Ok(data.0));
             methods.add_method_mut("set_value", |_, data, args| {
                 data.0 = args;
@@ -297,7 +297,7 @@ fn test_metamethods() {
     #[derive(Copy, Clone)]
     struct MyUserData(i64);
 
-    impl UserData for MyUserData {
+    impl<'lua> UserData<'lua> for MyUserData {
         fn add_methods(methods: &mut UserDataMethods<Self>) {
             methods.add_method("get", |_, data, ()| Ok(data.0));
             methods.add_meta_function(MetaMethod::Add, |_, (lhs, rhs): (MyUserData, MyUserData)| {
@@ -783,7 +783,7 @@ fn test_expired_userdata() {
         id: u8,
     }
 
-    impl UserData for MyUserdata {
+    impl<'lua> UserData<'lua> for MyUserdata {
         fn add_methods(methods: &mut UserDataMethods<Self>) {
             methods.add_method("access", |_, this, ()| {
                 assert!(this.id == 123);
@@ -824,7 +824,7 @@ fn detroys_userdata() {
 
     struct MyUserdata;
 
-    impl UserData for MyUserdata {}
+    impl<'lua> UserData<'lua> for MyUserdata {}
 
     impl Drop for MyUserdata {
         fn drop(&mut self) {
