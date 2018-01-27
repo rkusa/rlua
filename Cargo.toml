@@ -26,8 +26,13 @@ builtin-lua = ["gcc"]
 
 [dependencies]
 libc = { version = "0.2" }
-failure = { version = "0.1.1" }
 compiletest_rs = { version = "0.3", optional = true }
+
+[dependencies.failure]
+git = "https://github.com/chucklefish/failure"
+version = "0.1.1"
+default-features = false
+features = ["std", "derive"]
 
 [build-dependencies]
 gcc = { version = "0.3.52", optional = true }
