@@ -69,11 +69,10 @@ impl<'lua> String<'lua> {
     pub fn as_bytes_with_nul(&self) -> &[u8] {
         let lua = self.0.lua;
         unsafe {
-            stack_guard(lua.state, 0, || {
+            stack_guard(lua.state, || {
                 check_stack(lua.state, 1);
                 lua.push_ref(lua.state, &self.0);
-                lua_internal_assert!(
-                    lua.state,
+                rlua_assert!(
                     ffi::lua_type(lua.state, -1) == ffi::LUA_TSTRING,
                     "string ref is not string type"
                 );

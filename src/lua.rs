@@ -52,12 +52,8 @@ impl Drop for Lua {
     fn drop(&mut self) {
         unsafe {
             if !self.ephemeral {
-                if cfg!(test) {
-                    let top = ffi::lua_gettop(self.state);
-                    if top != 0 {
-                        lua_internal_abort!("Lua stack leak detected, stack top is {}", top);
-                    }
-                }
+                let top = ffi::lua_gettop(self.state);
+                rlua_assert!(top == 0, "stack leak detected, stack top is {}", top);
 
                 let extra_data = *(ffi::lua_getextraspace(self.state) as *mut *mut ExtraData);
                 *(*extra_data).registry_unref_list.lock().unwrap() = None;
@@ -91,7 +87,7 @@ impl Lua {
     /// Equivalent to Lua's `load` function.
     pub fn load(&self, source: &str, name: Option<&str>) -> Result<Function> {
         unsafe {
-            stack_err_guard(self.state, 0, || {
+            stack_err_guard(self.state, || {
                 check_stack(self.state, 1);
 
                 match if let Some(name) = name {
@@ -156,7 +152,7 @@ impl Lua {
     /// Pass a `&str` slice to Lua, creating and returning an interned Lua string.
     pub fn create_string(&self, s: &str) -> Result<String> {
         unsafe {
-            stack_err_guard(self.state, 0, || {
+            stack_err_guard(self.state, || {
                 check_stack(self.state, 4);
                 push_string(self.state, s)?;
                 Ok(String(self.pop_ref(self.state)))
@@ -167,7 +163,7 @@ impl Lua {
     /// Creates and returns a new table.
     pub fn create_table(&self) -> Result<Table> {
         unsafe {
-            stack_err_guard(self.state, 0, || {
+            stack_err_guard(self.state, || {
                 check_stack(self.state, 4);
                 protect_lua_call(self.state, 0, 1, |state| {
                     ffi::lua_newtable(state);
@@ -185,7 +181,7 @@ impl Lua {
         I: IntoIterator<Item = (K, V)>,
     {
         unsafe {
-            stack_err_guard(self.state, 0, || {
+            stack_err_guard(self.state, || {
                 check_stack(self.state, 6);
                 protect_lua_call(self.state, 0, 1, |state| {
                     ffi::lua_newtable(state);
@@ -305,7 +301,7 @@ impl Lua {
     /// Equivalent to `coroutine.create`.
     pub fn create_thread<'lua>(&'lua self, func: Function<'lua>) -> Result<Thread<'lua>> {
         unsafe {
-            stack_err_guard(self.state, 0, move || {
+            stack_err_guard(self.state, move || {
                 check_stack(self.state, 2);
 
                 let thread_state =
@@ -328,7 +324,7 @@ impl Lua {
     /// Returns a handle to the global environment.
     pub fn globals(&self) -> Table {
         unsafe {
-            stack_guard(self.state, 0, move || {
+            stack_guard(self.state, move || {
                 check_stack(self.state, 2);
                 ffi::lua_rawgeti(self.state, ffi::LUA_REGISTRYINDEX, ffi::LUA_RIDX_GLOBALS);
                 Table(self.pop_ref(self.state))
@@ -374,7 +370,7 @@ impl Lua {
         match v {
             Value::String(s) => Ok(s),
             v => unsafe {
-                stack_err_guard(self.state, 0, || {
+                stack_err_guard(self.state, || {
                     check_stack(self.state, 4);
                     let ty = v.type_name();
                     self.push_value(self.state, v);
@@ -403,7 +399,7 @@ impl Lua {
         match v {
             Value::Integer(i) => Ok(i),
             v => unsafe {
-                stack_guard(self.state, 0, || {
+                stack_guard(self.state, || {
                     check_stack(self.state, 2);
                     let ty = v.type_name();
                     self.push_value(self.state, v);
@@ -432,7 +428,7 @@ impl Lua {
         match v {
             Value::Number(n) => Ok(n),
             v => unsafe {
-                stack_guard(self.state, 0, || {
+                stack_guard(self.state, || {
                     check_stack(self.state, 2);
                     let ty = v.type_name();
                     self.push_value(self.state, v);
@@ -486,7 +482,7 @@ impl Lua {
         t: T,
     ) -> Result<()> {
         unsafe {
-            stack_err_guard(self.state, 0, || {
+            stack_err_guard(self.state, || {
                 check_stack(self.state, 5);
 
                 push_string(self.state, name)?;
@@ -507,7 +503,7 @@ impl Lua {
     /// [`set_named_registry_value`]: #method.set_named_registry_value
     pub fn named_registry_value<'lua, T: FromLua<'lua>>(&'lua self, name: &str) -> Result<T> {
         unsafe {
-            stack_err_guard(self.state, 0, || {
+            stack_err_guard(self.state, || {
                 check_stack(self.state, 4);
 
                 push_string(self.state, name)?;
@@ -535,7 +531,7 @@ impl Lua {
     /// state.
     pub fn create_registry_value<'lua, T: ToLua<'lua>>(&'lua self, t: T) -> Result<RegistryKey> {
         unsafe {
-            stack_guard(self.state, 0, || {
+            stack_guard(self.state, || {
                 check_stack(self.state, 2);
 
                 self.push_value(self.state, t.to_lua(self)?);
@@ -564,7 +560,7 @@ impl Lua {
                 return Err(Error::MismatchedRegistryKey);
             }
 
-            stack_err_guard(self.state, 0, || {
+            stack_err_guard(self.state, || {
                 check_stack(self.state, 2);
                 ffi::lua_rawgeti(
                     self.state,
@@ -727,8 +723,7 @@ impl Lua {
 
     // Used 1 stack space, does not call checkstack
     pub(crate) unsafe fn push_ref(&self, state: *mut ffi::lua_State, lref: &LuaRef) {
-        lua_assert!(
-            state,
+        assert!(
             lref.lua.main_state == self.main_state,
             "Lua instance passed Value created from a different Lua"
         );
@@ -777,7 +772,7 @@ impl Lua {
             }
         }
 
-        stack_err_guard(self.state, 0, move || {
+        stack_err_guard(self.state, move || {
             check_stack(self.state, 5);
 
             if let Some(table_id) = (*self.extra()).registered_userdata.get(&TypeId::of::<T>()) {
@@ -912,7 +907,7 @@ impl Lua {
                     // not really a huge loss.  Importantly, this allows us to turn off the gc, and
                     // then know that calling Lua API functions marked as 'm' will not result in a
                     // 'longjmp' error while the gc is off.
-                    lua_abort!("out of memory in Lua allocation, aborting!");
+                    abort!("out of memory in Lua allocation, aborting!");
                 } else {
                     p as *mut c_void
                 }
@@ -923,7 +918,7 @@ impl Lua {
 
         // Ignores or `unwrap()`s 'm' errors, because this is assuming that nothing in the lua
         // standard library will have a `__gc` metamethod error.
-        stack_guard(state, 0, || {
+        stack_guard(state, || {
             // Do not open the debug library, it can be used to cause unsafety.
             ffi::luaL_requiref(state, cstr!("_G"), ffi::luaopen_base, 1);
             ffi::luaL_requiref(state, cstr!("coroutine"), ffi::luaopen_coroutine, 1);
@@ -1031,7 +1026,7 @@ impl Lua {
         }
 
         unsafe {
-            stack_err_guard(self.state, 0, move || {
+            stack_err_guard(self.state, move || {
                 check_stack(self.state, 2);
 
                 push_userdata::<Callback>(self.state, func)?;
@@ -1057,7 +1052,7 @@ impl Lua {
         T: UserData,
     {
         unsafe {
-            stack_err_guard(self.state, 0, move || {
+            stack_err_guard(self.state, move || {
                 check_stack(self.state, 3);
 
                 push_userdata::<RefCell<T>>(self.state, RefCell::new(data))?;
@@ -1105,7 +1100,7 @@ impl<'scope> Scope<'scope> {
             let mut destructors = self.destructors.borrow_mut();
             let registry_id = f.0.registry_id;
             destructors.push(Box::new(move |state| {
-                stack_guard(state, 0, || {
+                stack_guard(state, || {
                     check_stack(state, 2);
 
                     ffi::lua_rawgeti(
@@ -1131,8 +1126,8 @@ impl<'scope> Scope<'scope> {
 
     /// Wraps a Rust mutable closure, creating a callable Lua function handle to it.
     ///
-    /// This is a version of [`Lua::create_function_mut`] that creates a callback which expires on scope
-    /// drop.  See [`Lua::scope`] for more details.
+    /// This is a version of [`Lua::create_function_mut`] that creates a callback which expires on
+    /// scope drop.  See [`Lua::scope`] for more details.
     ///
     /// [`Lua::create_function_mut`]: struct.Lua.html#method.create_function_mut
     /// [`Lua::scope`]: struct.Lua.html#method.scope
@@ -1169,7 +1164,7 @@ impl<'scope> Scope<'scope> {
             let mut destructors = self.destructors.borrow_mut();
             let registry_id = u.0.registry_id;
             destructors.push(Box::new(move |state| {
-                stack_guard(state, 0, || {
+                stack_guard(state, || {
                     check_stack(state, 1);
                     ffi::lua_rawgeti(
                         state,
