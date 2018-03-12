@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use std::string::String as StdString;
 
 use ffi;
-use error::*;
-use util::*;
+use error::{Error, Result};
+use util::{check_stack, get_userdata, StackGuard};
 use types::{Callback, LuaRef};
 use value::{FromLua, FromLuaMulti, ToLua, ToLuaMulti};
 use lua::Lua;
@@ -83,8 +83,8 @@ impl<'lua, T: UserData> UserDataMethods<'lua, T> {
     /// Regular methods are implemented by overriding the `__index` metamethod and returning the
     /// accessed method. This allows them to be used with the expected `userdata:method()` syntax.
     ///
-    /// If `add_meta_method` is used to override the `__index` metamethod, this approach will fall
-    /// back to the user-provided metamethod if no regular method was found.
+    /// If `add_meta_method` is used to set the `__index` metamethod, the `__index` metamethod will
+    /// be used as a fall-back if no regular method is found.
     pub fn add_method<A, R, M>(&mut self, name: &str, method: M)
     where
         A: FromLuaMulti<'lua>,
@@ -415,31 +415,28 @@ impl<'lua> AnyUserData<'lua> {
     {
         unsafe {
             let lua = self.0.lua;
-            stack_err_guard(lua.state, move || {
-                check_stack(lua.state, 3);
+            let _sg = StackGuard::new(lua.state);
+            check_stack(lua.state, 3);
 
-                lua.push_ref(lua.state, &self.0);
+            lua.push_ref(&self.0);
 
-                rlua_assert!(
-                    ffi::lua_getmetatable(lua.state, -1) != 0,
-                    "AnyUserData missing metatable"
-                );
+            rlua_assert!(
+                ffi::lua_getmetatable(lua.state, -1) != 0,
+                "AnyUserData missing metatable"
+            );
 
-                ffi::lua_rawgeti(
-                    lua.state,
-                    ffi::LUA_REGISTRYINDEX,
-                    lua.userdata_metatable::<T>()? as ffi::lua_Integer,
-                );
+            ffi::lua_rawgeti(
+                lua.state,
+                ffi::LUA_REGISTRYINDEX,
+                lua.userdata_metatable::<T>()? as ffi::lua_Integer,
+            );
 
-                if ffi::lua_rawequal(lua.state, -1, -2) == 0 {
-                    ffi::lua_pop(lua.state, 3);
-                    Err(Error::UserDataTypeMismatch)
-                } else {
-                    let res = func(&*get_userdata::<RefCell<T>>(lua.state, -3));
-                    ffi::lua_pop(lua.state, 3);
-                    res
-                }
-            })
+            if ffi::lua_rawequal(lua.state, -1, -2) == 0 {
+                Err(Error::UserDataTypeMismatch)
+            } else {
+                let res = func(&*get_userdata::<RefCell<T>>(lua.state, -3));
+                res
+            }
         }
     }
 
@@ -451,14 +448,12 @@ impl<'lua> AnyUserData<'lua> {
     pub fn set_user_value<V: ToLua<'lua>>(&self, v: V) -> Result<()> {
         let lua = self.0.lua;
         unsafe {
-            stack_err_guard(lua.state, || {
-                check_stack(lua.state, 2);
-                lua.push_ref(lua.state, &self.0);
-                lua.push_value(lua.state, v.to_lua(lua)?);
-                ffi::lua_setuservalue(lua.state, -2);
-                ffi::lua_pop(lua.state, 1);
-                Ok(())
-            })
+            let _sg = StackGuard::new(lua.state);
+            check_stack(lua.state, 2);
+            lua.push_ref(&self.0);
+            lua.push_value(v.to_lua(lua)?);
+            ffi::lua_setuservalue(lua.state, -2);
+            Ok(())
         }
     }
 
@@ -468,14 +463,12 @@ impl<'lua> AnyUserData<'lua> {
     pub fn get_user_value<V: FromLua<'lua>>(&self) -> Result<V> {
         let lua = self.0.lua;
         unsafe {
-            stack_err_guard(lua.state, || {
-                check_stack(lua.state, 3);
-                lua.push_ref(lua.state, &self.0);
-                ffi::lua_getuservalue(lua.state, -1);
-                let res = V::from_lua(lua.pop_value(lua.state), lua)?;
-                ffi::lua_pop(lua.state, 1);
-                Ok(res)
-            })
+            let _sg = StackGuard::new(lua.state);
+            check_stack(lua.state, 3);
+            lua.push_ref(&self.0);
+            ffi::lua_getuservalue(lua.state, -1);
+            let res = V::from_lua(lua.pop_value(), lua)?;
+            Ok(res)
         }
     }
 }
