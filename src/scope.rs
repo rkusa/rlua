@@ -46,31 +46,19 @@ impl<'scope> Scope<'scope> {
         R: ToLuaMulti<'lua>,
         F: 'scope + Fn(&'lua Lua, A) -> Result<R>,
     {
+        // Safe, because 'scope must outlive 'lua (due to Self containing 'scope), however the
+        // callback itself must be 'scope lifetime, so the function should not be able to capture
+        // anything of 'lua lifetime.  'scope can't be shortened due to being invariant, and the
+        // 'lua lifetime here can't be enlarged due to coming from a universal quantification in
+        // Lua::scope.
+        //
+        // I hope I got this explanation right, but in any case this is tested with compiletest_rs
+        // to make sure callbacks can't capture handles with lifetimes outside the scope, inside the
+        // scope, and owned inside the callback itself.
         unsafe {
-            let f = Box::new(move |lua, args| {
+            self.create_callback(Box::new(move |lua, args| {
                 func(lua, A::from_lua_multi(args, lua)?)?.to_lua_multi(lua)
-            });
-            let f = mem::transmute::<Callback<'lua, 'scope>, Callback<'lua, 'static>>(f);
-            let f = self.lua.create_callback(f)?;
-
-            let mut destructors = self.destructors.borrow_mut();
-            let f_destruct = f.0.clone();
-            destructors.push(Box::new(move || {
-                let state = f_destruct.lua.state;
-                let _sg = StackGuard::new(state);
-                assert_stack(state, 2);
-                f_destruct.lua.push_ref(&f_destruct);
-
-                ffi::lua_getupvalue(state, -1, 1);
-                let ud = take_userdata::<Callback>(state);
-
-                ffi::lua_pushnil(state);
-                ffi::lua_setupvalue(state, -2, 1);
-
-                ffi::lua_pop(state, 1);
-                Box::new(ud)
-            }));
-            Ok(f)
+            }))
         }
     }
 
@@ -94,6 +82,36 @@ impl<'scope> Scope<'scope> {
                 .try_borrow_mut()
                 .map_err(|_| Error::RecursiveMutCallback)?)(lua, args)
         })
+    }
+
+    // Unsafe, because the callback (since it is non-'static) can capture any value with 'callback
+    // scope, such as improperly holding onto an argument. So in order for this to be safe, the
+    // callback must NOT capture any arguments.
+    unsafe fn create_callback<'lua, 'callback>(
+        &'lua self,
+        f: Callback<'callback, 'scope>,
+    ) -> Result<Function<'lua>> {
+        let f = mem::transmute::<Callback<'callback, 'scope>, Callback<'callback, 'static>>(f);
+        let f = self.lua.create_callback(f)?;
+
+        let mut destructors = self.destructors.borrow_mut();
+        let f_destruct = f.0.clone();
+        destructors.push(Box::new(move || {
+            let state = f_destruct.lua.state;
+            let _sg = StackGuard::new(state);
+            assert_stack(state, 2);
+            f_destruct.lua.push_ref(&f_destruct);
+
+            ffi::lua_getupvalue(state, -1, 1);
+            let ud = take_userdata::<Callback>(state);
+
+            ffi::lua_pushnil(state);
+            ffi::lua_setupvalue(state, -2, 1);
+
+            ffi::lua_pop(state, 1);
+            Box::new(ud)
+        }));
+        Ok(f)
     }
 }
 

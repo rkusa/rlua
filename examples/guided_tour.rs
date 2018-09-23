@@ -4,7 +4,7 @@ use std::iter::FromIterator;
 
 use rlua::{Function, Lua, Result, Variadic};
 
-fn guided_tour() -> Result<()> {
+fn main() -> Result<()> {
     // Create a Lua context with `Lua::new()`.  Eventually, this will allow further control on the
     // lua std library, and will specifically allow limiting Lua to a subset of "safe"
     // functionality.
@@ -149,8 +149,4 @@ fn guided_tour() -> Result<()> {
     assert!(lua.eval::<()>("sketchy()", None).is_err());
 
     Ok(())
-}
-
-fn main() {
-    guided_tour().unwrap();
 }

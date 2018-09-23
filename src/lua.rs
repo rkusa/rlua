@@ -17,8 +17,8 @@ use thread::Thread;
 use types::{Callback, Integer, LightUserData, LuaRef, Number, RegistryKey};
 use util::{
     assert_stack, callback_error, check_stack, gc_guard, get_userdata, get_wrapped_error,
-    init_error_metatables, pop_error, protect_lua, protect_lua_closure, push_string,
-    push_userdata, push_wrapped_error, safe_pcall, safe_xpcall, userdata_destructor, StackGuard,
+    init_error_metatables, pop_error, protect_lua, protect_lua_closure, push_string, push_userdata,
+    push_wrapped_error, safe_pcall, safe_xpcall, userdata_destructor, StackGuard,
 };
 use value::{FromLua, FromLuaMulti, MultiValue, Nil, ToLua, ToLuaMulti, Value};
 
@@ -317,15 +317,15 @@ impl Lua {
     }
 
     /// Calls the given function with a `Scope` parameter, giving the function the ability to create
-    /// userdata from rust types that are !Send, and rust callbacks that are !Send and not 'static.
+    /// userdata and callbacks from rust types that are !Send or non-'static.
     ///
     /// The lifetime of any function or userdata created through `Scope` lasts only until the
     /// completion of this method call, on completion all such created values are automatically
     /// dropped and Lua references to them are invalidated.  If a script accesses a value created
     /// through `Scope` outside of this method, a Lua error will result.  Since we can ensure the
     /// lifetime of values created through `Scope`, and we know that `Lua` cannot be sent to another
-    /// thread while `Scope` is live, it is safe to allow !Send datatypes and functions whose
-    /// lifetimes only outlive the scope lifetime.
+    /// thread while `Scope` is live, it is safe to allow !Send datatypes and whose lifetimes only
+    /// outlive the scope lifetime.
     ///
     /// Handles that `Lua::scope` produces have a `'lua` lifetime of the scope parameter, to prevent
     /// the handles from escaping the callback.  However, this is not the only way for values to
@@ -753,6 +753,14 @@ impl Lua {
         }
     }
 
+    // Creates a Function out of a Callback containing a 'static Fn.  This is safe ONLY because the
+    // Fn is 'static, otherwise it could capture 'callback arguments improperly.  Without ATCs, we
+    // cannot easily deal with the "correct" callback type of:
+    //
+    // Box<for<'lua> Fn(&'lua Lua, MultiValue<'lua>) -> Result<MultiValue<'lua>>)>
+    //
+    // So we instead use a caller provided lifetime, which without the 'static requirement would be
+    // unsafe.
     pub(crate) fn create_callback<'lua, 'callback>(
         &'lua self,
         func: Callback<'callback, 'static>,
@@ -959,3 +967,4 @@ unsafe fn ref_stack_pop(extra: *mut ExtraData) -> c_int {
 }
 
 static FUNCTION_METATABLE_REGISTRY_KEY: u8 = 0;
+

@@ -1,7 +1,9 @@
+extern crate rlua;
+
 use std::cell::Cell;
 use std::rc::Rc;
 
-use {Error, Function, Lua, String};
+use rlua::{Error, Function, Lua, String};
 
 #[test]
 fn scope_func() {
