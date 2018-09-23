@@ -98,6 +98,7 @@ fn coroutine_from_closure() {
     let thrd_main = lua.create_function(|_, ()| Ok(())).unwrap();
     lua.globals().set("main", thrd_main).unwrap();
     let thrd: Thread = lua.eval("coroutine.create(main)", None).unwrap();
+    unreachable!();
     thrd.resume::<_, ()>(()).unwrap();
 }
 

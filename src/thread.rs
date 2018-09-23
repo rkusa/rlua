@@ -101,7 +101,7 @@ impl<'lua> Thread<'lua> {
             }
             ffi::lua_xmove(lua.state, thread_state, nargs);
 
-            let ret = ffi::lua_resume(thread_state, lua.state, nargs);
+            let ret = ffi::lua_resume(thread_state, nargs);
             if ret != ffi::LUA_OK && ret != ffi::LUA_YIELD {
                 error_traceback(thread_state);
                 return Err(pop_error(thread_state, ret));

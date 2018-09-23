@@ -8,7 +8,6 @@ use ffi;
 use function::Function;
 use lua::Lua;
 use types::Callback;
-use userdata::{AnyUserData, UserData};
 use util::{assert_stack, take_userdata, StackGuard};
 use value::{FromLuaMulti, ToLuaMulti};
 
@@ -95,33 +94,6 @@ impl<'scope> Scope<'scope> {
                 .try_borrow_mut()
                 .map_err(|_| Error::RecursiveMutCallback)?)(lua, args)
         })
-    }
-
-    /// Create a Lua userdata object from a custom userdata type.
-    ///
-    /// This is a version of [`Lua::create_userdata`] that creates a userdata which expires on scope
-    /// drop, and does not require that the userdata type be Send.  See [`Lua::scope`] for more
-    /// details.
-    ///
-    /// [`Lua::create_userdata`]: struct.Lua.html#method.create_userdata
-    /// [`Lua::scope`]: struct.Lua.html#method.scope
-    pub fn create_userdata<'lua, T>(&'lua self, data: T) -> Result<AnyUserData<'lua>>
-    where
-        T: UserData,
-    {
-        unsafe {
-            let u = self.lua.make_userdata(data)?;
-            let mut destructors = self.destructors.borrow_mut();
-            let u_destruct = u.0.clone();
-            destructors.push(Box::new(move || {
-                let state = u_destruct.lua.state;
-                let _sg = StackGuard::new(state);
-                assert_stack(state, 1);
-                u_destruct.lua.push_ref(&u_destruct);
-                Box::new(take_userdata::<RefCell<T>>(state))
-            }));
-            Ok(u)
-        }
     }
 }
 

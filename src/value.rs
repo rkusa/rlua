@@ -8,7 +8,6 @@ use string::String;
 use table::Table;
 use thread::Thread;
 use types::{Integer, LightUserData, Number};
-use userdata::AnyUserData;
 
 /// A dynamically typed Lua value.  The `String`, `Table`, `Function`, `Thread`, and `UserData`
 /// variants contain handle types into the internal Lua state.  It is a logic error to mix handle
@@ -38,9 +37,6 @@ pub enum Value<'lua> {
     Function(Function<'lua>),
     /// Reference to a Lua thread (or coroutine).
     Thread(Thread<'lua>),
-    /// Reference to a userdata object that holds a custom type which implements `UserData`.
-    /// Special builtin userdata types will be represented as other `Value` variants.
-    UserData(AnyUserData<'lua>),
     /// `Error` is a special builtin userdata type.  When received from Lua it is implicitly cloned.
     Error(Error),
 }
@@ -58,7 +54,7 @@ impl<'lua> Value<'lua> {
             Value::Table(_) => "table",
             Value::Function(_) => "function",
             Value::Thread(_) => "thread",
-            Value::UserData(_) | Value::Error(_) => "userdata",
+            Value::Error(_) => "userdata",
         }
     }
 }

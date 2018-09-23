@@ -1,6 +1,4 @@
-use std::any::TypeId;
 use std::cell::{RefCell, UnsafeCell};
-use std::collections::HashMap;
 use std::ffi::CString;
 use std::marker::PhantomData;
 use std::os::raw::{c_char, c_int, c_void};
@@ -17,10 +15,9 @@ use string::String;
 use table::Table;
 use thread::Thread;
 use types::{Callback, Integer, LightUserData, LuaRef, Number, RegistryKey};
-use userdata::{AnyUserData, MetaMethod, UserData, UserDataMethods};
 use util::{
     assert_stack, callback_error, check_stack, gc_guard, get_userdata, get_wrapped_error,
-    init_error_metatables, main_state, pop_error, protect_lua, protect_lua_closure, push_string,
+    init_error_metatables, pop_error, protect_lua, protect_lua_closure, push_string,
     push_userdata, push_wrapped_error, safe_pcall, safe_xpcall, userdata_destructor, StackGuard,
 };
 use value::{FromLua, FromLuaMulti, MultiValue, Nil, ToLua, ToLuaMulti, Value};
@@ -28,7 +25,7 @@ use value::{FromLua, FromLuaMulti, MultiValue, Nil, ToLua, ToLuaMulti, Value};
 /// Top level Lua struct which holds the Lua state itself.
 pub struct Lua {
     pub(crate) state: *mut ffi::lua_State,
-    main_state: *mut ffi::lua_State,
+//    main_state: *mut ffi::lua_State,
     ephemeral: bool,
     // Lua has lots of interior mutability, should not be RefUnwindSafe
     _phantom: PhantomData<UnsafeCell<()>>,
@@ -309,20 +306,12 @@ impl Lua {
         }
     }
 
-    /// Create a Lua userdata object from a custom userdata type.
-    pub fn create_userdata<T>(&self, data: T) -> Result<AnyUserData>
-    where
-        T: Send + UserData,
-    {
-        unsafe { self.make_userdata(data) }
-    }
-
     /// Returns a handle to the global environment.
     pub fn globals(&self) -> Table {
         unsafe {
             let _sg = StackGuard::new(self.state);
             assert_stack(self.state, 2);
-            ffi::lua_rawgeti(self.state, ffi::LUA_REGISTRYINDEX, ffi::LUA_RIDX_GLOBALS);
+            ffi::lua_pushglobaltable(self.state);
             Table(self.pop_ref())
         }
     }
@@ -658,10 +647,6 @@ impl Lua {
                 self.push_ref(&t.0);
             }
 
-            Value::UserData(ud) => {
-                self.push_ref(&ud.0);
-            }
-
             Value::Error(e) => {
                 push_wrapped_error(self.state, e);
             }
@@ -713,7 +698,7 @@ impl Lua {
                     ffi::lua_pop(self.state, 1);
                     Value::Error(err)
                 } else {
-                    Value::UserData(AnyUserData(self.pop_ref()))
+                    rlua_panic!("LUA_TUSERDATA in pop_value")
                 }
             }
 
@@ -725,10 +710,10 @@ impl Lua {
 
     // Pushes a LuaRef value onto the stack, uses 1 stack space, does not call checkstack
     pub(crate) unsafe fn push_ref<'lua>(&'lua self, lref: &LuaRef<'lua>) {
-        assert!(
-            lref.lua.main_state == self.main_state,
-            "Lua instance passed Value created from a different main Lua state"
-        );
+//        assert!(
+//            lref.lua.main_state == self.main_state,
+//            "Lua instance passed Value created from a different main Lua state"
+//        );
         let extra = extra_data(self.state);
         ffi::lua_pushvalue((*extra).ref_thread, lref.index);
         ffi::lua_xmove((*extra).ref_thread, self.state, 1);
@@ -768,137 +753,6 @@ impl Lua {
         }
     }
 
-    pub(crate) unsafe fn userdata_metatable<T: UserData>(&self) -> Result<c_int> {
-        // Used if both an __index metamethod is set and regular methods, checks methods table
-        // first, then __index metamethod.
-        unsafe extern "C" fn meta_index_impl(state: *mut ffi::lua_State) -> c_int {
-            ffi::luaL_checkstack(state, 2, ptr::null());
-
-            ffi::lua_pushvalue(state, -1);
-            ffi::lua_gettable(state, ffi::lua_upvalueindex(1));
-            if ffi::lua_isnil(state, -1) == 0 {
-                ffi::lua_insert(state, -3);
-                ffi::lua_pop(state, 2);
-                1
-            } else {
-                ffi::lua_pop(state, 1);
-                ffi::lua_pushvalue(state, ffi::lua_upvalueindex(2));
-                ffi::lua_insert(state, -3);
-                ffi::lua_call(state, 2, 1);
-                1
-            }
-        }
-
-        if let Some(table_id) = (*extra_data(self.state))
-            .registered_userdata
-            .get(&TypeId::of::<T>())
-        {
-            return Ok(*table_id);
-        }
-
-        let _sg = StackGuard::new(self.state);
-        assert_stack(self.state, 6);
-
-        let mut methods = UserDataMethods {
-            methods: HashMap::new(),
-            meta_methods: HashMap::new(),
-            _type: PhantomData,
-        };
-        T::add_methods(&mut methods);
-
-        protect_lua_closure(self.state, 0, 1, |state| {
-            ffi::lua_newtable(state);
-        })?;
-
-        let has_methods = !methods.methods.is_empty();
-
-        if has_methods {
-            push_string(self.state, "__index")?;
-            protect_lua_closure(self.state, 0, 1, |state| {
-                ffi::lua_newtable(state);
-            })?;
-
-            for (k, m) in methods.methods {
-                push_string(self.state, &k)?;
-                self.push_value(Value::Function(self.create_callback(m)?));
-                protect_lua_closure(self.state, 3, 1, |state| {
-                    ffi::lua_rawset(state, -3);
-                })?;
-            }
-
-            protect_lua_closure(self.state, 3, 1, |state| {
-                ffi::lua_rawset(state, -3);
-            })?;
-        }
-
-        for (k, m) in methods.meta_methods {
-            if k == MetaMethod::Index && has_methods {
-                push_string(self.state, "__index")?;
-                ffi::lua_pushvalue(self.state, -1);
-                ffi::lua_gettable(self.state, -3);
-                self.push_value(Value::Function(self.create_callback(m)?));
-                protect_lua_closure(self.state, 2, 1, |state| {
-                    ffi::lua_pushcclosure(state, meta_index_impl, 2);
-                })?;
-
-                protect_lua_closure(self.state, 3, 1, |state| {
-                    ffi::lua_rawset(state, -3);
-                })?;
-            } else {
-                let name = match k {
-                    MetaMethod::Add => "__add",
-                    MetaMethod::Sub => "__sub",
-                    MetaMethod::Mul => "__mul",
-                    MetaMethod::Div => "__div",
-                    MetaMethod::Mod => "__mod",
-                    MetaMethod::Pow => "__pow",
-                    MetaMethod::Unm => "__unm",
-                    MetaMethod::IDiv => "__idiv",
-                    MetaMethod::BAnd => "__band",
-                    MetaMethod::BOr => "__bor",
-                    MetaMethod::BXor => "__bxor",
-                    MetaMethod::BNot => "__bnot",
-                    MetaMethod::Shl => "__shl",
-                    MetaMethod::Shr => "__shr",
-                    MetaMethod::Concat => "__concat",
-                    MetaMethod::Len => "__len",
-                    MetaMethod::Eq => "__eq",
-                    MetaMethod::Lt => "__lt",
-                    MetaMethod::Le => "__le",
-                    MetaMethod::Index => "__index",
-                    MetaMethod::NewIndex => "__newindex",
-                    MetaMethod::Call => "__call",
-                    MetaMethod::ToString => "__tostring",
-                };
-                push_string(self.state, name)?;
-                self.push_value(Value::Function(self.create_callback(m)?));
-                protect_lua_closure(self.state, 3, 1, |state| {
-                    ffi::lua_rawset(state, -3);
-                })?;
-            }
-        }
-
-        push_string(self.state, "__gc")?;
-        ffi::lua_pushcfunction(self.state, userdata_destructor::<RefCell<T>>);
-        protect_lua_closure(self.state, 3, 1, |state| {
-            ffi::lua_rawset(state, -3);
-        })?;
-
-        push_string(self.state, "__metatable")?;
-        ffi::lua_pushboolean(self.state, 0);
-        protect_lua_closure(self.state, 3, 1, |state| {
-            ffi::lua_rawset(state, -3);
-        })?;
-
-        let id = gc_guard(self.state, || {
-            ffi::luaL_ref(self.state, ffi::LUA_REGISTRYINDEX)
-        });
-        (*extra_data(self.state))
-            .registered_userdata
-            .insert(TypeId::of::<T>(), id);
-        Ok(id)
-    }
-
     pub(crate) fn create_callback<'lua, 'callback>(
         &'lua self,
         func: Callback<'callback, 'static>,
@@ -916,7 +770,7 @@ impl Lua {
 
                 let lua = Lua {
                     state: state,
-                    main_state: main_state(state),
+//                    main_state: main_state(state),
                     ephemeral: true,
                     _phantom: PhantomData,
                 };
@@ -961,32 +815,10 @@ impl Lua {
             Ok(Function(self.pop_ref()))
         }
     }
-
-    // Does not require Send bounds, which can lead to unsafety.
-    pub(crate) unsafe fn make_userdata<T>(&self, data: T) -> Result<AnyUserData>
-    where
-        T: UserData,
-    {
-        let _sg = StackGuard::new(self.state);
-        assert_stack(self.state, 4);
-
-        push_userdata::<RefCell<T>>(self.state, RefCell::new(data))?;
-
-        ffi::lua_rawgeti(
-            self.state,
-            ffi::LUA_REGISTRYINDEX,
-            self.userdata_metatable::<T>()? as ffi::lua_Integer,
-        );
-
-        ffi::lua_setmetatable(self.state, -2);
-
-        Ok(AnyUserData(self.pop_ref()))
-    }
 }
 
 // Data associated with the main lua_State via lua_getextraspace.
 struct ExtraData {
-    registered_userdata: HashMap<TypeId, c_int>,
     registry_unref_list: Arc<Mutex<Option<Vec<c_int>>>>,
 
     ref_thread: *mut ffi::lua_State,
@@ -1031,15 +863,13 @@ unsafe fn create_lua(load_debug: bool) -> Lua {
 
     // Do not open the debug library, it can be used to cause unsafety.
     ffi::luaL_requiref(state, cstr!("_G"), ffi::luaopen_base, 1);
-    ffi::luaL_requiref(state, cstr!("coroutine"), ffi::luaopen_coroutine, 1);
     ffi::luaL_requiref(state, cstr!("table"), ffi::luaopen_table, 1);
     ffi::luaL_requiref(state, cstr!("io"), ffi::luaopen_io, 1);
     ffi::luaL_requiref(state, cstr!("os"), ffi::luaopen_os, 1);
     ffi::luaL_requiref(state, cstr!("string"), ffi::luaopen_string, 1);
-    ffi::luaL_requiref(state, cstr!("utf8"), ffi::luaopen_utf8, 1);
     ffi::luaL_requiref(state, cstr!("math"), ffi::luaopen_math, 1);
     ffi::luaL_requiref(state, cstr!("package"), ffi::luaopen_package, 1);
-    ffi::lua_pop(state, 9);
+    ffi::lua_pop(state, 7);
 
     init_error_metatables(state);
 
@@ -1069,7 +899,7 @@ unsafe fn create_lua(load_debug: bool) -> Lua {
 
     // Override pcall and xpcall with versions that cannot be used to catch rust panics.
 
-    ffi::lua_rawgeti(state, ffi::LUA_REGISTRYINDEX, ffi::LUA_RIDX_GLOBALS);
+    ffi::lua_pushglobaltable(state);
 
     push_string(state, "pcall").unwrap();
     ffi::lua_pushcfunction(state, safe_pcall);
@@ -1090,7 +920,6 @@ unsafe fn create_lua(load_debug: bool) -> Lua {
     // Create ExtraData, and place it in the lua_State "extra space"
 
     let extra = Box::into_raw(Box::new(ExtraData {
-        registered_userdata: HashMap::new(),
         registry_unref_list: Arc::new(Mutex::new(Some(Vec::new()))),
         ref_thread,
         // We need 1 extra stack space to move values in and out of the ref stack.
@@ -1105,7 +934,7 @@ unsafe fn create_lua(load_debug: bool) -> Lua {
 
     Lua {
         state,
-        main_state: state,
+//        main_state: state,
         ephemeral: false,
         _phantom: PhantomData,
     }

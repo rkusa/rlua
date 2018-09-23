@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use {Error, Function, Lua, String, UserData, UserDataMethods};
+use {Error, Function, Lua, String};
 
 #[test]
 fn scope_func() {
@@ -31,36 +31,6 @@ fn scope_func() {
     {
         Err(Error::CallbackError { .. }) => {}
         r => panic!("improper return for destructed function: {:?}", r),
-    };
-}
-
-#[test]
-fn scope_drop() {
-    let lua = Lua::new();
-
-    struct MyUserdata(Rc<()>);
-    impl UserData for MyUserdata {
-        fn add_methods(methods: &mut UserDataMethods<Self>) {
-            methods.add_method("method", |_, _, ()| Ok(()));
-        }
-    }
-
-    let rc = Rc::new(());
-
-    lua.scope(|scope| {
-        lua.globals()
-            .set(
-                "test",
-                scope.create_userdata(MyUserdata(rc.clone())).unwrap(),
-            )
-            .unwrap();
-        assert_eq!(Rc::strong_count(&rc), 2);
-    });
-    assert_eq!(Rc::strong_count(&rc), 1);
-
-    match lua.exec::<()>("test:method()", None) {
-        Err(Error::CallbackError { .. }) => {}
-        r => panic!("improper return for destructed userdata: {:?}", r),
     };
 }
 

@@ -1,9 +1,8 @@
 extern crate rlua;
 
-use std::f32;
 use std::iter::FromIterator;
 
-use rlua::{Function, Lua, MetaMethod, Result, UserData, UserDataMethods, Variadic};
+use rlua::{Function, Lua, Result, Variadic};
 
 fn guided_tour() -> Result<()> {
     // Create a Lua context with `Lua::new()`.  Eventually, this will allow further control on the
@@ -118,34 +117,6 @@ fn guided_tour() -> Result<()> {
         false
     );
     assert_eq!(lua.eval::<String>(r#"join("a", "b", "c")"#, None)?, "abc");
-
-    // You can create userdata with methods and metamethods defined on them.
-    // Here's a worked example that shows many of the features of this API
-    // together
-
-    #[derive(Copy, Clone)]
-    struct Vec2(f32, f32);
-
-    impl UserData for Vec2 {
-        fn add_methods(methods: &mut UserDataMethods<Self>) {
-            methods.add_method("magnitude", |_, vec, ()| {
-                let mag_squared = vec.0 * vec.0 + vec.1 * vec.1;
-                Ok(mag_squared.sqrt())
-            });
-
-            methods.add_meta_function(MetaMethod::Add, |_, (vec1, vec2): (Vec2, Vec2)| {
-                Ok(Vec2(vec1.0 + vec2.0, vec1.1 + vec2.1))
-            });
-        }
-    }
-
-    let vec2_constructor = lua.create_function(|_, (x, y): (f32, f32)| Ok(Vec2(x, y)))?;
-    globals.set("vec2", vec2_constructor)?;
-
-    assert!(
-        (lua.eval::<f32>("(vec2(1, 2) + vec2(2, 2)):magnitude()", None)? - 5.0).abs()
-            < f32::EPSILON
-    );
 
     // Normally, Rust types passed to `Lua` must be `Send`, because `Lua` itself is `Send`, and must
     // be `'static`, because there is no way to tell when Lua might garbage collect them.  There is,

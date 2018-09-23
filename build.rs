@@ -30,10 +30,7 @@ fn main() {
             .file("lua/lapi.c")
             .file("lua/lauxlib.c")
             .file("lua/lbaselib.c")
-            .file("lua/lbitlib.c")
             .file("lua/lcode.c")
-            .file("lua/lcorolib.c")
-            .file("lua/lctype.c")
             .file("lua/ldblib.c")
             .file("lua/ldebug.c")
             .file("lua/ldo.c")
@@ -56,10 +53,15 @@ fn main() {
             .file("lua/ltable.c")
             .file("lua/ltablib.c")
             .file("lua/ltm.c")
+//            .file("lua/lua.c")
+            // .file("lua/luac.c")
             .file("lua/lundump.c")
-            .file("lua/lutf8lib.c")
             .file("lua/lvm.c")
             .file("lua/lzio.c")
-            .compile("liblua5.3.a");
+            .file("lua/print.c")
+            .define("COMPAT53_PREFIX", Some("lua"))
+            .file("lua/compat-5.3.c")
+            .flag_if_supported("-Wno-deprecated")
+            .compile("liblua5.1.a");
     }
 }

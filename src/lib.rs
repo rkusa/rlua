@@ -57,7 +57,6 @@ mod string;
 mod table;
 mod thread;
 mod types;
-mod userdata;
 mod util;
 mod value;
 
@@ -73,7 +72,6 @@ pub use string::String;
 pub use table::{Table, TablePairs, TableSequence};
 pub use thread::{Thread, ThreadStatus};
 pub use types::{Integer, LightUserData, Number, RegistryKey};
-pub use userdata::{AnyUserData, MetaMethod, UserData, UserDataMethods};
 pub use value::{FromLua, FromLuaMulti, MultiValue, Nil, ToLua, ToLuaMulti, Value};
 
 pub mod prelude;

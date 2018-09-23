@@ -1,8 +1,26 @@
-# rlua -- High level bindings between Rust and Lua
+# rlua51 -- High level bindings between Rust and Lua 5.1
 
-[![Build Status](https://travis-ci.org/kyren/rlua.svg?branch=master)](https://travis-ci.org/kyren/rlua)
+This is a port from Lua5.3-based [rlua](https://github.com/kyren/rlua) to Lua5.1.
+
+Changes:
+
+- Added Lua 5.1 source and [lua-compat-5.3](https://github.com/keplerproject/lua-compat-5.3)
+- Removed UserData because of [its limited compatibility to Lua 5.1](https://github.com/keplerproject/lua-compat-5.3/wiki/lua_setuservalue)
+
+Tests are not yet green:  [![Build Status](https://travis-ci.org/kyren/rlua.svg?branch=master)](https://travis-ci.org/kyren/rlua)
+
+---
+
+[![Build Status](https://travis-ci.org/rkusa/rlua.svg?branch=master)](https://travis-ci.org/rkusa/rlua)
+
+<!--
 [![Latest Version](https://img.shields.io/crates/v/rlua.svg)](https://crates.io/crates/rlua)
 [![API Documentation](https://docs.rs/rlua/badge.svg)](https://docs.rs/rlua)
+-->
+
+Original Readme:
+
+---
 
 [Guided Tour](examples/guided_tour.rs)
 

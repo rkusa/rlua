@@ -9,7 +9,6 @@ use string::String;
 use table::Table;
 use thread::Thread;
 use types::{Integer, LightUserData, Number};
-use userdata::{AnyUserData, UserData};
 use value::{FromLua, Nil, ToLua, Value};
 
 impl<'lua> ToLua<'lua> for Value<'lua> {
@@ -87,44 +86,6 @@ impl<'lua> FromLua<'lua> for Thread<'lua> {
             _ => Err(Error::FromLuaConversionError {
                 from: value.type_name(),
                 to: "thread",
-                message: None,
-            }),
-        }
-    }
-}
-
-impl<'lua> ToLua<'lua> for AnyUserData<'lua> {
-    fn to_lua(self, _: &'lua Lua) -> Result<Value<'lua>> {
-        Ok(Value::UserData(self))
-    }
-}
-
-impl<'lua> FromLua<'lua> for AnyUserData<'lua> {
-    fn from_lua(value: Value<'lua>, _: &'lua Lua) -> Result<AnyUserData<'lua>> {
-        match value {
-            Value::UserData(ud) => Ok(ud),
-            _ => Err(Error::FromLuaConversionError {
-                from: value.type_name(),
-                to: "userdata",
-                message: None,
-            }),
-        }
-    }
-}
-
-impl<'lua, T: Send + UserData> ToLua<'lua> for T {
-    fn to_lua(self, lua: &'lua Lua) -> Result<Value<'lua>> {
-        Ok(Value::UserData(lua.create_userdata(self)?))
-    }
-}
-
-impl<'lua, T: UserData + Clone> FromLua<'lua> for T {
-    fn from_lua(value: Value<'lua>, _: &'lua Lua) -> Result<T> {
-        match value {
-            Value::UserData(ud) => Ok(ud.borrow::<T>()?.clone()),
-            _ => Err(Error::FromLuaConversionError {
-                from: value.type_name(),
-                to: "userdata",
                 message: None,
             }),
         }
